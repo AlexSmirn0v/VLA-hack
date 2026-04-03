@@ -2,7 +2,7 @@
 
 ## Введение
 
-Ваша задача — научить манипулятор **SO-101** класть объекты в тарелку. Конкретно: робот должен уметь справляться с тремя заданиями:
+Наша задача — научить манипулятор **SO-101** класть объекты в тарелку. Конкретно: робот должен уметь справляться с тремя заданиями:
 
 | # | Задание |
 |---|---------|
@@ -21,7 +21,8 @@
 - [HuggingFace - реальный датасет для шарика, часть 1](https://huggingface.co/datasets/AlexSmirn0v/record_1b)
 - [HuggingFace - реальный датасет для шарика, часть 2](https://huggingface.co/datasets/AlexSmirn0v/record_2b)
 - [HuggingFace - реальный датасет для различных предметов](https://huggingface.co/datasets/AlexSmirn0v/record_1a)
-- [HuggingFace — YandexLeRobot](https://huggingface.co/datasets/AlexSmirn0v/YandexLeRobot) (4 поддатасета: `record-test`, `record_1a`, `record_1b`, `record_2b`)
+
+Веса итоговой модели опубликованы на [Google Drive](https://drive.google.com/drive/folders/1rFbzAwFRvQZzDkmboNLFeLGYTcvpp5In?usp=sharing)
 
 Для локальной работы скачайте датасеты в папку `datasets/`:
 
@@ -80,7 +81,7 @@ lerobot-record \
 ```
 
 **Важные параметры:**
-- `--dataset.repo_id` — ID вашего датасета
+- `--dataset.repo_id` — ID датасета
 - `--output_dir` — куда сохранять чекпоинты
 - `--batch_size=128` — размер батча
 - `--steps=5000` — количество шагов обучения
