@@ -11,16 +11,135 @@
 | ❓ | Положить **секретный объект** в тарелку *(объект будет раскрыт на финале)* |
 
 
-### Мы советуем следующие подходы:
+Также у нас есть уже собранные датасеты:
 
-1. **Записать масштабный датасет в симуляции** — используйте MuJoCo, это быстро и не требует железа.
-2. **Дополнить данными из реальности** — у нас есть сетап с leader/follower-руками и двумя камерами; реальные данные сильно улучшают качество.
-3. **Задуматься о Sim2Real** — потому что симуляционные данные далеко не всегда совпадают с реальными.
-4. **Дообучить VLA-модель** — советуем начать со [SmolVLA](https://huggingface.co/blog/smolvla), она лёгкая и хорошо подходит для старта.
+- [Google Drive — общий датасет](https://drive.google.com/file/d/17pKcWhjH6h93pfkWoLvjW5kTLeCzqAog/view?usp=sharing)
+- [HuggingFace - MuJoCo для кубика, часть 1](https://huggingface.co/datasets/AlexSmirn0v/sim_cube)
+- [HuggingFace - MuJoCo для кубика, часть 2](https://huggingface.co/datasets/AlexSmirn0v/sim_cube_v2)
+- [HuggingFace - MuJoCo для шарика](https://huggingface.co/datasets/AlexSmirn0v/sym_ball)
+- [HuggingFace - реальный датасет для кубика](https://huggingface.co/datasets/AlexSmirn0v/record_1a)
+- [HuggingFace - реальный датасет для шарика, часть 1](https://huggingface.co/datasets/AlexSmirn0v/record_1b)
+- [HuggingFace - реальный датасет для шарика, часть 2](https://huggingface.co/datasets/AlexSmirn0v/record_2b)
+- [HuggingFace - реальный датасет для различных предметов](https://huggingface.co/datasets/AlexSmirn0v/record_1a)
+- [HuggingFace — YandexLeRobot](https://huggingface.co/datasets/AlexSmirn0v/YandexLeRobot) (4 поддатасета: `record-test`, `record_1a`, `record_1b`, `record_2b`)
 
-Также у нас есть уже собранный датасет, можете рассмотреть его: [data](https://drive.google.com/file/d/17pKcWhjH6h93pfkWoLvjW5kTLeCzqAog/view?usp=sharing)
+Для локальной работы скачайте датасеты в папку `datasets/`:
 
-## Сбор датасета
+```bash
+mkdir -p datasets
+cd datasets
+# Вариант 1: через huggingface-cli
+huggingface-cli download AlexSmirn0v/YandexLeRobot --repo-type dataset --local-dir .
+
+# Вариант 2: через git (если установлен git-lfs)
+git clone https://huggingface.co/datasets/AlexSmirn0v/YandexLeRobot
+```
+
+## Старт
+
+### 1. Запись датасета (реальный робот)
+
+Запись демонстраций с использованием leader/follower сетапа:
+
+```bash
+lerobot-record \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyACM1 \
+  --robot.cameras="{ front: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30}, side: {type: opencv, index_or_path: /dev/video4, width: 640, height: 480, fps: 30}}" \
+  --display_data=true \
+  --dataset.repo_id=AlexSmirn0v/record_1a \
+  --dataset.single_task="Put cube in the plate" \
+  --teleop.type=so101_leader \
+  --teleop.port=/dev/ttyACM0 \
+  --dataset.num_episodes=40 \
+  --dataset.streaming_encoding=true \
+  --dataset.encoder_threads=2
+```
+
+**Важные параметры:**
+- `--robot.port=/dev/ttyACM1` — порт follower-руки (подставьте свой)
+- `--teleop.port=/dev/ttyACM0` — порт leader-руки (подставьте свой)
+- `--robot.cameras=...` — две камеры: `front` (`/dev/video6`) и `side` (`/dev/video4`)
+- `--dataset.num_episodes=40` — количество записываемых эпизодов
+- `--display_data=true` — показывает данные во время записи
+
+### 2. Обучение модели
+
+Обучение SmolVLA на собранном датасете:
+
+```bash
+./run_official_smolvla_train_cached.sh \
+    --policy.type=smolvla \
+    --policy.device=cuda \
+    --dataset.repo_id=AlexSmirn0v/record_1a \
+    --dataset.root=/app/datasets/real-home \
+    --output_dir=/app/outputs/train/smolvla_so101_1 \
+    --job_name=smolvla_so101 \
+    --batch_size=128 \
+    --steps=5000
+```
+
+**Важные параметры:**
+- `--dataset.repo_id` — ID вашего датасета
+- `--output_dir` — куда сохранять чекпоинты
+- `--batch_size=128` — размер батча
+- `--steps=5000` — количество шагов обучения
+
+Скрипт автоматически:
+- Монтирует репозиторий в `/app`
+- Пробрасывает GPU
+- Сохраняет Hugging Face cache в `outputs/hf_cache`
+
+### 3. Инференс / Оценка модели
+
+Запуск обученной модели для оценки (инференс на реальном роботе):
+
+```bash
+lerobot-record \
+  --robot.type=so100_follower \
+  --robot.port=/dev/ttyACM1 \
+  --robot.cameras="{ front: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30}, side: {type: opencv, index_or_path: /dev/video4, width: 640, height: 480, fps: 30}}" \
+  --display_data=false \
+  --dataset.repo_id=AlexSmirn0v/eval_ya \
+  --dataset.single_task="Put object in the plate" \
+  --dataset.streaming_encoding=true \
+  --dataset.encoder_threads=2 \
+  --policy.path=/home/user/VLA-hack/001500/pretrained_model
+```
+
+**Важные параметры:**
+- `--policy.path` — путь к директории с обученной моделью (`pretrained_model`)
+- `--display_data=false` — не показывать данные во время инференса
+
+### 4. Оценка в симуляторе (MuJoCo)
+
+Для оценки чекпоинта в симуляции MuJoCo:
+
+```bash
+docker run --rm --gpus all \
+    -v "$PWD:/app" \
+    -w /app \
+    dpaleyev/lerobot-workshop:latest \
+    python run_smolvla_inference.py \
+        --policy-path /app/outputs/train/smolvla_so101_1/checkpoints/last/pretrained_model \
+        --dataset-root /app/datasets/real-home \
+        --dataset-repo-id AlexSmirn0v/record_1a \
+        --episodes 10 \
+        --max-steps 250 \
+        --fps 10 \
+        --summary-path /app/outputs/eval/smolvla_so101_1_summary.json
+```
+
+Этот скрипт:
+- Загружает обученный SmolVLA checkpoint
+- Подтягивает статистики датасета для нормализации
+- Прогоняет несколько эпизодов в MuJoCo
+- Считает число успешных эпизодов и success rate
+- Сохраняет итоговый JSON-отчёт (если передан `--summary-path`)
+
+---
+
+## Сбор датасета в симуляции (MuJoCo)
 
 ### Что такое MuJoCo и зачем он здесь
 
@@ -155,68 +274,3 @@ lerobot-record \
 - `--dataset.streaming_encoding=false` и `--dataset.vcodec=h264` фиксируют предсказуемое локальное кодирование видео.
 
 На Linux, если во время записи датасета не работают клавиши `Left`, `Right` и `Escape`, проверьте, что установлена переменная окружения `$DISPLAY`. Подробнее: [pynput limitations for Linux](https://pynput.readthedocs.io/en/latest/limitations.html#linux).
-
-## Обучение моделей
-
-Для первого эксперимента мы предлагаем начинать со **SmolVLA**: это хороший базовый VLA-пайплайн, на котором удобно быстро проверить весь цикл целиком, от датасета до инференса в симуляции.
-
-Для обучения и инференса мы используем готовый образ на Docker Hub: [dpaleyev/lerobot-workshop](https://hub.docker.com/r/dpaleyev/lerobot-workshop).
-
-Перед началом работы скачайте образ:
-
-```bash
-docker pull dpaleyev/lerobot-workshop:latest
-```
-
-### Обучение SmolVLA
-
-Скрипт `run_official_smolvla_train_cached.sh` оборачивает `lerobot-train` в `docker run`, автоматически:
-
-- монтирует репозиторий в `/app`;
-- пробрасывает GPU;
-- сохраняет Hugging Face cache в `outputs/hf_cache`;
-- добавляет несколько дефолтных флагов для обучения.
-
-Базовый запуск:
-
-```bash
-./run_official_smolvla_train_cached.sh \
-    --policy.type=smolvla \
-    --policy.device=cuda \
-    --dataset.repo_id=local/record-test \
-    --dataset.root=/app/record-test \
-    --output_dir=/app/outputs/train/smolvla_so101 \
-    --job_name=smolvla_so101
-```
-
-Все дополнительные аргументы после имени скрипта пробрасываются напрямую в `lerobot-train`, поэтому сюда можно добавлять свои параметры `dataset`, `policy`, `training` и `eval`.
-
-### Оценка модели в симуляторе
-
-Для оценки чекпоинта в MuJoCo используйте `run_smolvla_inference.py`. На удалённой машине мы рекомендуем запускать его в контейнере через VNC, чтобы видеть окно симуляции:
-
-```bash
-docker run --rm --gpus all \
-    -v "$PWD:/app" \
-    -w /app \
-    dpaleyev/lerobot-workshop:latest \
-    python run_smolvla_inference.py \
-        --policy-path /app/outputs/train/smolvla_so101/checkpoints/last/pretrained_model \
-        --dataset-root /app/record-test \
-        --dataset-repo-id local/record-test \
-        --episodes 10 \
-        --max-steps 250 \
-        --fps 10 \
-        --summary-path /app/outputs/eval/smolvla_so101_summary.json
-```
-
-Этот скрипт:
-
-- загружает обученный SmolVLA checkpoint;
-- подтягивает статистики датасета для нормализации;
-- прогоняет несколько эпизодов в MuJoCo;
-- считает число успешных эпизодов и success rate;
-- сохраняет итоговый JSON-отчёт, если передан `--summary-path`.
-
-
-
